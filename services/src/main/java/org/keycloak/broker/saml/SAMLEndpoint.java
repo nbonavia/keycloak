@@ -87,6 +87,10 @@ import java.util.List;
 import org.keycloak.rotation.HardcodedKeyLocator;
 import org.keycloak.rotation.KeyLocator;
 import org.keycloak.saml.processing.core.util.KeycloakKeySamlExtensionGenerator;
+import org.keycloak.saml.validators.ConditionsValidator;
+import org.keycloak.saml.validators.DestinationValidator;
+import java.net.URI;
+import java.security.cert.CertificateException;
 import org.w3c.dom.Element;
 
 import java.util.*;
@@ -111,6 +115,7 @@ public class SAMLEndpoint {
     protected SAMLIdentityProviderConfig config;
     protected IdentityProvider.AuthenticationCallback callback;
     protected SAMLIdentityProvider provider;
+    private final DestinationValidator destinationValidator;
 
     @Context
     private KeycloakSession session;
@@ -122,11 +127,12 @@ public class SAMLEndpoint {
     private HttpHeaders headers;
 
 
-    public SAMLEndpoint(RealmModel realm, SAMLIdentityProvider provider, SAMLIdentityProviderConfig config, IdentityProvider.AuthenticationCallback callback) {
+    public SAMLEndpoint(RealmModel realm, SAMLIdentityProvider provider, SAMLIdentityProviderConfig config, IdentityProvider.AuthenticationCallback callback, DestinationValidator destinationValidator) {
         this.realm = realm;
         this.config = config;
         this.callback = callback;
         this.provider = provider;
+        this.destinationValidator = destinationValidator;
     }
 
     @GET
@@ -215,9 +221,13 @@ public class SAMLEndpoint {
             List<Key> keys = new LinkedList<>();
 
             for (String signingCertificate : config.getSigningCertificates()) {
+                X509Certificate cert = null;
                 try {
-                    X509Certificate cert = XMLSignatureUtil.getX509CertificateFromKeyInfoString(signingCertificate.replaceAll("\\s", ""));
+                    cert = XMLSignatureUtil.getX509CertificateFromKeyInfoString(signingCertificate.replaceAll("\\s", ""));
+                    cert.checkValidity();
                     keys.add(cert.getPublicKey());
+                } catch (CertificateException e) {
+                    logger.warnf("Ignoring invalid certificate: %s", cert);
                 } catch (ProcessingException e) {
                     throw new RuntimeException(e);
                 }
@@ -238,7 +248,7 @@ public class SAMLEndpoint {
             SAMLDocumentHolder holder = extractRequestDocument(samlRequest);
             RequestAbstractType requestAbstractType = (RequestAbstractType) holder.getSamlObject();
             // validate destination
-            if (requestAbstractType.getDestination() != null && !session.getContext().getUri().getAbsolutePath().equals(requestAbstractType.getDestination())) {
+            if (! destinationValidator.validate(session.getContext().getUri().getAbsolutePath(), requestAbstractType.getDestination())) {
                 event.event(EventType.IDENTITY_PROVIDER_RESPONSE);
                 event.detail(Details.REASON, "invalid_destination");
                 event.error(Errors.INVALID_SAML_RESPONSE);
@@ -403,6 +413,24 @@ public class SAMLEndpoint {
                     identity.setToken(samlResponse);
                 }
 
+                ConditionsValidator.Builder cvb = new ConditionsValidator.Builder(assertion.getID(), assertion.getConditions(), destinationValidator);
+                try {
+                    String issuerURL = getEntityId(session.getContext().getUri(), realm);
+                    cvb.addAllowedAudience(URI.create(issuerURL));
+                    // getDestination has been validated to match request URL already so it matches SAML endpoint
+                    if (responseType.getDestination() != null) {
+                        cvb.addAllowedAudience(URI.create(responseType.getDestination()));
+                    }
+                } catch (IllegalArgumentException ex) {
+                    // warning has been already emitted in DeploymentBuilder
+                }
+                if (! cvb.build().isValid()) {
+                    logger.error("Assertion expired.");
+                    event.event(EventType.IDENTITY_PROVIDER_RESPONSE);
+                    event.error(Errors.INVALID_SAML_RESPONSE);
+                    return ErrorPage.error(session, null, Response.Status.BAD_REQUEST, Messages.EXPIRED_CODE);
+                }
+
                 AuthnStatementType authn = null;
                 for (Object statement : assertion.getStatements()) {
                     if (statement instanceof AuthnStatementType) {
@@ -456,7 +484,7 @@ public class SAMLEndpoint {
             SAMLDocumentHolder holder = extractResponseDocument(samlResponse);
             StatusResponseType statusResponse = (StatusResponseType)holder.getSamlObject();
             // validate destination
-            if (statusResponse.getDestination() != null && !session.getContext().getUri().getAbsolutePath().toString().equals(statusResponse.getDestination())) {
+            if (! destinationValidator.validate(session.getContext().getUri().getAbsolutePath(), statusResponse.getDestination())) {
                 event.event(EventType.IDENTITY_PROVIDER_RESPONSE);
                 event.detail(Details.REASON, "invalid_destination");
                 event.error(Errors.INVALID_SAML_RESPONSE);

@@ -162,6 +162,9 @@ public interface RealmModel extends RoleContainerModel {
 
     void setResetPasswordAllowed(boolean resetPasswordAllowed);
 
+    String getDefaultSignatureAlgorithm();
+    void setDefaultSignatureAlgorithm(String defaultSignatureAlgorithm);
+
     boolean isRevokeRefreshToken();
     void setRevokeRefreshToken(boolean revokeRefreshToken);
 
@@ -173,6 +176,12 @@ public interface RealmModel extends RoleContainerModel {
 
     int getSsoSessionMaxLifespan();
     void setSsoSessionMaxLifespan(int seconds);
+
+    int getSsoSessionIdleTimeoutRememberMe();
+    void setSsoSessionIdleTimeoutRememberMe(int seconds);
+
+    int getSsoSessionMaxLifespanRememberMe();
+    void setSsoSessionMaxLifespanRememberMe(int seconds);
 
     int getOfflineSessionIdleTimeout();
     void setOfflineSessionIdleTimeout(int seconds);

@@ -17,6 +17,8 @@
  */
 package org.keycloak.adapters.authorization;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -69,7 +71,11 @@ public abstract class AbstractPolicyEnforcer {
         if (securityContext == null) {
             if (!isDefaultAccessDeniedUri(request)) {
                 if (pathConfig != null) {
-                    challenge(pathConfig, getRequiredScopes(pathConfig, request), httpFacade);
+                    if (EnforcementMode.DISABLED.equals(pathConfig.getEnforcementMode())) {
+                        return createEmptyAuthorizationContext(true);
+                    } else {
+                        challenge(pathConfig, getRequiredScopes(pathConfig, request), httpFacade);
+                    }
                 } else {
                     handleAccessDenied(httpFacade);
                 }
@@ -107,8 +113,9 @@ public abstract class AbstractPolicyEnforcer {
             }
 
             MethodConfig methodConfig = getRequiredScopes(pathConfig, request);
+            Map<String, List<String>> claims = resolveClaims(pathConfig, httpFacade);
 
-            if (isAuthorized(pathConfig, methodConfig, accessToken, httpFacade)) {
+            if (isAuthorized(pathConfig, methodConfig, accessToken, httpFacade, claims)) {
                 try {
                     return createAuthorizationContext(accessToken, pathConfig);
                 } catch (Exception e) {
@@ -137,7 +144,7 @@ public abstract class AbstractPolicyEnforcer {
 
     protected abstract boolean challenge(PathConfig pathConfig, MethodConfig methodConfig, OIDCHttpFacade facade);
 
-    protected boolean isAuthorized(PathConfig actualPathConfig, MethodConfig methodConfig, AccessToken accessToken, OIDCHttpFacade httpFacade) {
+    protected boolean isAuthorized(PathConfig actualPathConfig, MethodConfig methodConfig, AccessToken accessToken, OIDCHttpFacade httpFacade, Map<String, List<String>> claims) {
         Request request = httpFacade.getRequest();
 
         if (isDefaultAccessDeniedUri(request)) {
@@ -151,7 +158,7 @@ public abstract class AbstractPolicyEnforcer {
         }
 
         boolean hasPermission = false;
-        List<Permission> grantedPermissions = authorization.getPermissions();
+        Collection<Permission> grantedPermissions = authorization.getPermissions();
 
         for (Permission permission : grantedPermissions) {
             if (permission.getResourceId() != null) {
@@ -170,7 +177,7 @@ public abstract class AbstractPolicyEnforcer {
                             policyEnforcer.getPathMatcher().removeFromCache(getPath(request));
                         }
 
-                        return hasValidClaims(actualPathConfig, permission, httpFacade, authorization);
+                        return hasValidClaims(permission, claims);
                     }
                 }
             } else {
@@ -192,12 +199,10 @@ public abstract class AbstractPolicyEnforcer {
         return false;
     }
 
-    private boolean hasValidClaims(PathConfig actualPathConfig, Permission permission, OIDCHttpFacade httpFacade, Authorization authorization) {
+    private boolean hasValidClaims(Permission permission, Map<String, List<String>> claims) {
         Map<String, Set<String>> grantedClaims = permission.getClaims();
 
         if (grantedClaims != null) {
-            Map<String, List<String>> claims = resolveClaims(actualPathConfig, httpFacade);
-
             if (claims.isEmpty()) {
                 return false;
             }
@@ -305,7 +310,15 @@ public abstract class AbstractPolicyEnforcer {
         MethodConfig methodConfig = new MethodConfig();
 
         methodConfig.setMethod(request.getMethod());
-        methodConfig.setScopes(pathConfig.getScopes());
+        List scopes = new ArrayList<>();
+
+        if (Boolean.TRUE.equals(getEnforcerConfig().getHttpMethodAsScope())) {
+            scopes.add(request.getMethod());
+        } else {
+            scopes.addAll(pathConfig.getScopes());
+        }
+
+        methodConfig.setScopes(scopes);
         methodConfig.setScopesEnforcementMode(PolicyEnforcerConfig.ScopeEnforcementMode.ANY);
 
         return methodConfig;
@@ -344,18 +357,16 @@ public abstract class AbstractPolicyEnforcer {
     }
 
     private Map<String, List<String>> getClaims(Map<String, Map<String, Object>>claimInformationPointConfig, HttpFacade httpFacade) {
-        Map<String, List<String>> claims = new HashMap<>();
-
         if (claimInformationPointConfig != null) {
             for (Entry<String, Map<String, Object>> claimDef : claimInformationPointConfig.entrySet()) {
                 ClaimInformationPointProviderFactory factory = getPolicyEnforcer().getClaimInformationPointProviderFactories().get(claimDef.getKey());
 
                 if (factory != null) {
-                    claims.putAll(factory.create(claimDef.getValue()).resolve(httpFacade));
+                    return factory.create(claimDef.getValue()).resolve(httpFacade);
                 }
             }
         }
 
-        return claims;
+        return new HashMap<>();
     }
 }

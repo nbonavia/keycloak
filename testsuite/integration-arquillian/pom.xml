@@ -24,7 +24,7 @@
     <parent>
         <groupId>org.keycloak</groupId>
         <artifactId>keycloak-testsuite-pom</artifactId>
-        <version>4.3.0.Final-SNAPSHOT</version>
+        <version>4.8.3.Final-SNAPSHOT</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
     
@@ -41,6 +41,11 @@
         <app.server.java.home>${java.home}</app.server.java.home>
         <app.server>undertow</app.server>
 
+        <!-- Wildfly deprecated versions -->
+        <wildfly.deprecated.version>13.0.0.Final</wildfly.deprecated.version>
+        <wildfly.deprecated.wildfly.core.version>5.0.0.Final</wildfly.deprecated.wildfly.core.version>
+        <wildfly.deprecated.arquillian.wildfly.container>2.1.0.Final</wildfly.deprecated.arquillian.wildfly.container>
+
         <!--component versions-->
         <!--
             to update arquillian-core to 1.3.0.Final or higher
@@ -51,7 +56,7 @@
         <arquillian-core.version>1.2.1.Final</arquillian-core.version>
         <!--the version of shrinkwrap_resolver should align with the version in arquillian-bom-->
         <shrinkwrap-resolver.version>2.2.6</shrinkwrap-resolver.version>
-        <selenium.version>3.13.0</selenium.version>
+        <selenium.version>3.14.0</selenium.version>
         <arquillian-drone.version>2.5.1</arquillian-drone.version>
         <arquillian-graphene.version>2.3.2</arquillian-graphene.version>
         <arquillian-wildfly-container.version>2.1.0.Final</arquillian-wildfly-container.version>
@@ -65,23 +70,84 @@
 
         <!--migration properties-->
         <migration.70.version>1.9.8.Final</migration.70.version>
-        <migration.70.authz.version>2.2.1.Final</migration.70.authz.version>
         <migration.71.version>2.5.5.Final</migration.71.version>
-        <google.guava.version>23.0</google.guava.version>
-        
-        <maven.compiler.target>1.8</maven.compiler.target>
-        <maven.compiler.source>1.8</maven.compiler.source>
+        <migration.72.version>3.4.3.Final</migration.72.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
+
+            <!-- Selenium Server -->
             <dependency>
-                <groupId>org.jboss.arquillian.selenium</groupId>
-                <artifactId>selenium-bom</artifactId>
+                <groupId>org.seleniumhq.selenium</groupId>
+                <artifactId>selenium-server</artifactId>
                 <version>${selenium.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
             </dependency>
+
+            <!-- Selenium dependencies -->
+            <dependency>
+                <groupId>org.seleniumhq.selenium</groupId>
+                <artifactId>selenium-api</artifactId>
+                <version>${selenium.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.seleniumhq.selenium</groupId>
+                <artifactId>selenium-java</artifactId>
+                <version>${selenium.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.seleniumhq.selenium</groupId>
+                <artifactId>selenium-support</artifactId>
+                <version>${selenium.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.seleniumhq.selenium</groupId>
+                <artifactId>selenium-leg-rc</artifactId>
+                <version>${selenium.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.seleniumhq.selenium</groupId>
+                <artifactId>lift</artifactId>
+                <version>${selenium.version}</version>
+            </dependency>
+
+            <!-- Drivers -->
+            <dependency>
+                <groupId>org.seleniumhq.selenium</groupId>
+                <artifactId>selenium-chrome-driver</artifactId>
+                <version>${selenium.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.seleniumhq.selenium</groupId>
+                <artifactId>selenium-firefox-driver</artifactId>
+                <version>${selenium.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.seleniumhq.selenium</groupId>
+                <artifactId>selenium-ie-driver</artifactId>
+                <version>${selenium.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.seleniumhq.selenium</groupId>
+                <artifactId>selenium-edge-driver</artifactId>
+                <version>${selenium.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.seleniumhq.selenium</groupId>
+                <artifactId>selenium-safari-driver</artifactId>
+                <version>${selenium.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.seleniumhq.selenium</groupId>
+                <artifactId>selenium-remote-driver</artifactId>
+                <version>${selenium.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.seleniumhq.selenium</groupId>
+                <artifactId>selenium-opera-driver</artifactId>
+                <version>${selenium.version}</version>
+            </dependency>
+
             <dependency>
                 <groupId>org.jboss.arquillian</groupId>
                 <artifactId>arquillian-bom</artifactId>
@@ -177,6 +243,11 @@
                     <artifactId>directory-maven-plugin</artifactId>
                     <version>0.3.1</version>
                 </plugin>
+                <plugin>
+                    <groupId>com.googlecode.maven-download-plugin</groupId>
+                    <artifactId>download-maven-plugin</artifactId>
+                    <version>1.4.1</version>
+                </plugin>
             </plugins>
         </pluginManagement>
     </build>
@@ -210,9 +281,9 @@
             </build>
         </profile>
         <profile>
-            <id>test-70-authz-migration</id>
+            <id>test-71-migration</id>
             <properties>
-                <migrated.auth.server.version>${migration.70.authz.version}</migrated.auth.server.version>
+                <migrated.auth.server.version>${migration.71.version}</migrated.auth.server.version>
             </properties>
             <build>
                 <pluginManagement>
@@ -230,9 +301,9 @@
             </build>
         </profile>
         <profile>
-            <id>test-71-migration</id>
+            <id>test-72-migration</id>
             <properties>
-                <migrated.auth.server.version>${migration.71.version}</migrated.auth.server.version>
+                <migrated.auth.server.version>${migration.72.version}</migrated.auth.server.version>
             </properties>
             <build>
                 <pluginManagement>

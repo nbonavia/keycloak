@@ -75,8 +75,7 @@ import org.openqa.selenium.By;
 import org.openqa.selenium.WebDriver;
 
 @AppServerContainer(ContainerConstants.APP_SERVER_FUSE63)
-@AppServerContainer(ContainerConstants.APP_SERVER_FUSE70)
-@AppServerContainer(ContainerConstants.APP_SERVER_FUSE71)
+@AppServerContainer(ContainerConstants.APP_SERVER_FUSE7X)
 public class FuseAdminAdapterTest extends AbstractExampleAdapterTest {
 
     @Drone
@@ -101,7 +100,7 @@ public class FuseAdminAdapterTest extends AbstractExampleAdapterTest {
 
     @Override
     public void addAdapterTestRealms(List<RealmRepresentation> testRealms) {
-        RealmRepresentation fuseRealm = loadRealm(new File(EXAMPLES_HOME_DIR + "/fuse/demorealm.json"));
+        RealmRepresentation fuseRealm = loadRealm(new File(TEST_APPS_HOME_DIR + "/fuse/demorealm.json"));
         testRealms.add(fuseRealm);
     }
 

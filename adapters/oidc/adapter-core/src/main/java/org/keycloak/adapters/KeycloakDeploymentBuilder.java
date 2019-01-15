@@ -88,6 +88,9 @@ public class KeycloakDeploymentBuilder {
         } else {
             deployment.setTokenStore(TokenStore.SESSION);
         }
+        if (adapterConfig.getTokenCookiePath() != null) {
+            deployment.setAdapterStateCookiePath(adapterConfig.getTokenCookiePath());
+        }
         if (adapterConfig.getPrincipalAttribute() != null) deployment.setPrincipalAttribute(adapterConfig.getPrincipalAttribute());
 
         deployment.setResourceCredentials(adapterConfig.getCredentials());
@@ -122,6 +125,7 @@ public class KeycloakDeploymentBuilder {
         deployment.setPublicKeyCacheTtl(adapterConfig.getPublicKeyCacheTtl());
         deployment.setIgnoreOAuthQueryParameter(adapterConfig.isIgnoreOAuthQueryParameter());
         deployment.setRewriteRedirectRules(adapterConfig.getRedirectRewriteRules());
+        deployment.setVerifyTokenAudience(adapterConfig.isVerifyTokenAudience());
 
         if (realmKeyPem == null && adapterConfig.isBearerOnly() && adapterConfig.getAuthServerUrl() == null) {
             throw new IllegalArgumentException("For bearer auth, you must set the realm-public-key or auth-server-url");

@@ -70,6 +70,7 @@ public class KeycloakDeployment {
     protected SslRequired sslRequired = SslRequired.ALL;
     protected int confidentialPort = -1;
     protected TokenStore tokenStore = TokenStore.SESSION;
+    protected String adapterStateCookiePath = "";
     protected String stateCookieName = "OAuth_Token_Request_State";
     protected boolean useResourceRoleMappings;
     protected boolean cors;
@@ -92,10 +93,11 @@ public class KeycloakDeployment {
     // https://tools.ietf.org/html/rfc7636
     protected boolean pkce = false;
     protected boolean ignoreOAuthQueryParameter;
-    
+
     protected Map<String, String> redirectRewriteRules;
 
     protected boolean delegateBearerErrorResponseSending = false;
+    protected boolean verifyTokenAudience = false;
 
     public KeycloakDeployment() {
     }
@@ -296,6 +298,14 @@ public class KeycloakDeployment {
         this.tokenStore = tokenStore;
     }
 
+    public String getAdapterStateCookiePath() {
+        return adapterStateCookiePath;
+    }
+
+    public void setAdapterStateCookiePath(String adapterStateCookiePath) {
+        this.adapterStateCookiePath = adapterStateCookiePath;
+    }
+
     public String getStateCookieName() {
         return stateCookieName;
     }
@@ -476,5 +486,13 @@ public class KeycloakDeployment {
 
     public void setDelegateBearerErrorResponseSending(boolean delegateBearerErrorResponseSending) {
         this.delegateBearerErrorResponseSending = delegateBearerErrorResponseSending;
+    }
+
+    public boolean isVerifyTokenAudience() {
+        return verifyTokenAudience;
+    }
+
+    public void setVerifyTokenAudience(boolean verifyTokenAudience) {
+        this.verifyTokenAudience = verifyTokenAudience;
     }
 }

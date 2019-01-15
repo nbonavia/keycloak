@@ -224,7 +224,11 @@ class ClientPermissions implements ClientPermissionEvaluator,  ClientPermissionM
 
     @Override
     public boolean canList() {
-        return root.hasAnyAdminRole();
+        return canView() || root.hasOneAdminRole(AdminRoles.QUERY_CLIENTS);
+    }
+
+    public boolean canList(ClientModel clientModel) {
+        return canView(clientModel) || root.hasOneAdminRole(AdminRoles.QUERY_CLIENTS);
     }
 
     @Override
@@ -236,7 +240,7 @@ class ClientPermissions implements ClientPermissionEvaluator,  ClientPermissionM
 
     @Override
     public boolean canListClientScopes() {
-        return root.hasAnyAdminRole();
+        return canView() || root.hasOneAdminRole(AdminRoles.QUERY_CLIENTS);
     }
 
     @Override
@@ -342,7 +346,7 @@ class ClientPermissions implements ClientPermissionEvaluator,  ClientPermissionM
                 }
 
             };
-            return root.evaluatePermission(resource, scope, server, context);
+            return root.evaluatePermission(resource, server, context, scope);
         }
         return true;
     }
@@ -376,7 +380,7 @@ class ClientPermissions implements ClientPermissionEvaluator,  ClientPermissionM
         }
 
         Scope scope = manageScope(server);
-        return root.evaluatePermission(resource, scope, server);
+        return root.evaluatePermission(resource, server, scope);
     }
 
     @Override
@@ -404,7 +408,7 @@ class ClientPermissions implements ClientPermissionEvaluator,  ClientPermissionM
         }
 
         Scope scope = configureScope(server);
-        return root.evaluatePermission(resource, scope, server);
+        return root.evaluatePermission(resource, server, scope);
     }
     @Override
     public void requireConfigure(ClientModel client) {
@@ -450,7 +454,7 @@ class ClientPermissions implements ClientPermissionEvaluator,  ClientPermissionM
         }
 
         Scope scope = viewScope(server);
-        return root.evaluatePermission(resource, scope, server);
+        return root.evaluatePermission(resource, server, scope);
     }
 
     @Override
@@ -529,7 +533,7 @@ class ClientPermissions implements ClientPermissionEvaluator,  ClientPermissionM
         }
 
         Scope scope = mapRolesScope(server);
-        return root.evaluatePermission(resource, scope, server);
+        return root.evaluatePermission(resource, server, scope);
     }
 
     @Override
@@ -606,7 +610,7 @@ class ClientPermissions implements ClientPermissionEvaluator,  ClientPermissionM
         }
 
         Scope scope = authz.getStoreFactory().getScopeStore().findByName(MAP_ROLES_COMPOSITE_SCOPE, server.getId());
-        return root.evaluatePermission(resource, scope, server);
+        return root.evaluatePermission(resource, server, scope);
     }
     @Override
     public boolean canMapClientScopeRoles(ClientModel client) {
@@ -628,7 +632,7 @@ class ClientPermissions implements ClientPermissionEvaluator,  ClientPermissionM
         }
 
         Scope scope = authz.getStoreFactory().getScopeStore().findByName(MAP_ROLES_CLIENT_SCOPE, server.getId());
-        return root.evaluatePermission(resource, scope, server);
+        return root.evaluatePermission(resource, server, scope);
     }
 
     @Override

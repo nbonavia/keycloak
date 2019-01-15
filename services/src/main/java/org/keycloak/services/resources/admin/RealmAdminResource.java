@@ -680,6 +680,11 @@ public class RealmAdminResource {
 
         logger.debug("updating realm events config: " + realm.getName());
         new RealmManager(session).updateRealmEventsConfig(rep, realm);
+        adminEvent.operation(OperationType.UPDATE).resource(ResourceType.REALM).realm(realm)
+                .resourcePath(session.getContext().getUri()).representation(rep)
+                // refresh the builder to consider old and new config
+                .refreshRealmEventsConfig(session)
+                .success();
     }
 
     /**
@@ -1072,9 +1077,17 @@ public class RealmAdminResource {
     @Produces(MediaType.APPLICATION_JSON)
     public RealmRepresentation partialExport(@QueryParam("exportGroupsAndRoles") Boolean exportGroupsAndRoles,
                                                      @QueryParam("exportClients") Boolean exportClients) {
+        auth.realm().requireViewRealm();
 
         boolean groupsAndRolesExported = exportGroupsAndRoles != null && exportGroupsAndRoles;
         boolean clientsExported = exportClients != null && exportClients;
+
+        if (groupsAndRolesExported) {
+            auth.groups().requireList();
+        }
+        if (clientsExported) {
+            auth.clients().requireView();
+        }
 
         ExportOptions options = new ExportOptions(false, clientsExported, groupsAndRolesExported);
         RealmRepresentation rep = ExportUtils.exportRealm(session, realm, options, false);

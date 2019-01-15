@@ -134,6 +134,13 @@
             "bearerOnly": true
         },
         {
+            "clientId": "customer-db-audience-required",
+            "enabled": true,
+            "adminUrl": "/customer-db-audience-required",
+            "baseUrl": "/customer-db-audience-required",
+            "bearerOnly": true
+        },
+        {
             "clientId": "customer-portal",
             "enabled": true,
             "adminUrl": "/customer-portal",
@@ -160,6 +167,15 @@
             "baseUrl": "/customer-cookie-portal",
             "redirectUris": [
                 "/customer-cookie-portal/*"
+            ],
+            "secret": "password"
+        },
+        {
+            "clientId": "customer-cookie-portal-root",
+            "enabled": true,
+            "baseUrl": "/",
+            "redirectUris": [
+                "http://localhost:8280/*"
             ],
             "secret": "password"
         },
@@ -251,6 +267,16 @@
             "baseUrl": "/session-portal",
             "redirectUris": [
                 "/session-portal/*"
+            ],
+            "secret": "password"
+        },
+        {
+            "clientId": "session-portal-distributable",
+            "enabled": true,
+            "adminUrl": "http://localhost:8580/session-portal-distributable",
+            "baseUrl": "http://localhost:8580/session-portal-distributable",
+            "redirectUris": [
+                "http://localhost:8580/session-portal-distributable/*"
             ],
             "secret": "password"
         },

@@ -85,8 +85,8 @@ import org.keycloak.rotation.HardcodedKeyLocator;
 import org.keycloak.rotation.KeyLocator;
 import org.keycloak.saml.SPMetadataDescriptor;
 import org.keycloak.saml.processing.core.util.KeycloakKeySamlExtensionGenerator;
+import org.keycloak.saml.validators.DestinationValidator;
 import org.keycloak.sessions.AuthenticationSessionModel;
-import java.util.Map;
 
 /**
  * Resource class for the saml connect token service
@@ -98,13 +98,11 @@ public class SamlService extends AuthorizationEndpointBase {
 
     protected static final Logger logger = Logger.getLogger(SamlService.class);
 
-    private final Map<String, Integer> knownPorts;
-    private final Map<Integer, String> knownProtocols;
+    private final DestinationValidator destinationValidator;
 
-    public SamlService(RealmModel realm, EventBuilder event, Map<String, Integer> knownPorts, Map<Integer, String> knownProtocols) {
+    public SamlService(RealmModel realm, EventBuilder event, DestinationValidator destinationValidator) {
         super(realm, event);
-        this.knownPorts = knownPorts;
-        this.knownProtocols = knownProtocols;
+        this.destinationValidator = destinationValidator;
     }
 
     public abstract class BindingProtocol {
@@ -147,7 +145,7 @@ public class SamlService extends AuthorizationEndpointBase {
 
             StatusResponseType statusResponse = (StatusResponseType) holder.getSamlObject();
             // validate destination
-            if (statusResponse.getDestination() != null && !session.getContext().getUri().getAbsolutePath().toString().equals(statusResponse.getDestination())) {
+            if (! destinationValidator.validate(session.getContext().getUri().getAbsolutePath(), statusResponse.getDestination())) {
                 event.detail(Details.REASON, "invalid_destination");
                 event.error(Errors.INVALID_SAML_LOGOUT_RESPONSE);
                 return ErrorPage.error(session, null, Response.Status.BAD_REQUEST, Messages.INVALID_REQUEST);
@@ -177,9 +175,16 @@ public class SamlService extends AuthorizationEndpointBase {
                 event.error(Errors.CLIENT_NOT_FOUND);
                 return ErrorPage.error(session, null, Response.Status.BAD_REQUEST, Messages.CLIENT_NOT_FOUND);
             }
+
+            if (!isClientProtocolCorrect(client)) {
+                event.event(EventType.LOGOUT);
+                event.error(Errors.INVALID_CLIENT);
+                return ErrorPage.error(session, null, Response.Status.BAD_REQUEST, "Wrong client protocol.");
+            }
+
             session.getContext().setClient(client);
             logger.debug("logout response");
-            Response response = authManager.browserLogout(session, realm, userSession, session.getContext().getUri(), clientConnection, headers);
+            Response response = authManager.browserLogout(session, realm, userSession, session.getContext().getUri(), clientConnection, headers, null);
             event.success();
             return response;
         }
@@ -227,6 +232,11 @@ public class SamlService extends AuthorizationEndpointBase {
                 event.error(Errors.NOT_ALLOWED);
                 return ErrorPage.error(session, null, Response.Status.BAD_REQUEST, Messages.STANDARD_FLOW_DISABLED);
             }
+            if (!isClientProtocolCorrect(client)) {
+                event.event(EventType.LOGIN);
+                event.error(Errors.INVALID_CLIENT);
+                return ErrorPage.error(session, null, Response.Status.BAD_REQUEST, "Wrong client protocol.");
+            }
 
             session.getContext().setClient(client);
 
@@ -272,7 +282,7 @@ public class SamlService extends AuthorizationEndpointBase {
                 event.error(Errors.INVALID_SAML_AUTHN_REQUEST);
                 return ErrorPage.error(session, null, Response.Status.BAD_REQUEST, Messages.INVALID_REQUEST);
             }
-            if (! isValidDestination(requestAbstractType.getDestination())) {
+            if (! destinationValidator.validate(session.getContext().getUri().getAbsolutePath(), requestAbstractType.getDestination())) {
                 event.detail(Details.REASON, "invalid_destination");
                 event.error(Errors.INVALID_SAML_AUTHN_REQUEST);
                 return ErrorPage.error(session, null, Response.Status.BAD_REQUEST, Messages.INVALID_REQUEST);
@@ -376,7 +386,7 @@ public class SamlService extends AuthorizationEndpointBase {
                 event.error(Errors.INVALID_SAML_LOGOUT_REQUEST);
                 return ErrorPage.error(session, null, Response.Status.BAD_REQUEST, Messages.INVALID_REQUEST);
             }
-            if (! isValidDestination(logoutRequest.getDestination())) {
+            if (! destinationValidator.validate(logoutRequest.getDestination(), session.getContext().getUri().getAbsolutePath())) {
                 event.detail(Details.REASON, "invalid_destination");
                 event.error(Errors.INVALID_SAML_LOGOUT_REQUEST);
                 return ErrorPage.error(session, null, Response.Status.BAD_REQUEST, Messages.INVALID_REQUEST);
@@ -412,7 +422,7 @@ public class SamlService extends AuthorizationEndpointBase {
                     clientSession.setAction(AuthenticationSessionModel.Action.LOGGED_OUT.name());
                 }
                 logger.debug("browser Logout");
-                return authManager.browserLogout(session, realm, userSession, session.getContext().getUri(), clientConnection, headers);
+                return authManager.browserLogout(session, realm, userSession, session.getContext().getUri(), clientConnection, headers, null);
             } else if (logoutRequest.getSessionIndex() != null) {
                 for (String sessionIndex : logoutRequest.getSessionIndex()) {
 
@@ -609,6 +619,14 @@ public class SamlService extends AuthorizationEndpointBase {
           key.getKid(), PemUtils.encodeCertificate(key.getCertificate()), purpose, false));
     }
 
+    private boolean isClientProtocolCorrect(ClientModel clientModel) {
+        if (SamlProtocol.LOGIN_PROTOCOL.equals(clientModel.getProtocol())) {
+            return true;
+        }
+
+        return false;
+    }
+
     @GET
     @Path("clients/{client}")
     @Produces(MediaType.TEXT_HTML_UTF_8)
@@ -633,17 +651,47 @@ public class SamlService extends AuthorizationEndpointBase {
             event.error(Errors.CLIENT_DISABLED);
             return ErrorPage.error(session, null, Response.Status.BAD_REQUEST, Messages.CLIENT_DISABLED);
         }
-        if (client.getManagementUrl() == null && client.getAttribute(SamlProtocol.SAML_ASSERTION_CONSUMER_URL_POST_ATTRIBUTE) == null && client.getAttribute(SamlProtocol.SAML_ASSERTION_CONSUMER_URL_REDIRECT_ATTRIBUTE) == null) {
-            logger.error("SAML assertion consumer url not set up");
-            event.error(Errors.INVALID_REDIRECT_URI);
-            return ErrorPage.error(session, null, Response.Status.BAD_REQUEST, Messages.INVALID_REDIRECT_URI);
+        if (!isClientProtocolCorrect(client)) {
+            event.error(Errors.INVALID_CLIENT);
+            return ErrorPage.error(session, null, Response.Status.BAD_REQUEST, "Wrong client protocol.");
         }
 
         session.getContext().setClient(client);
 
         AuthenticationSessionModel authSession = getOrCreateLoginSessionForIdpInitiatedSso(this.session, this.realm, client, relayState);
+        if (authSession == null) {
+            logger.error("SAML assertion consumer url not set up");
+            event.error(Errors.INVALID_REDIRECT_URI);
+            return ErrorPage.error(session, null, Response.Status.BAD_REQUEST, Messages.INVALID_REDIRECT_URI);
+        }
 
         return newBrowserAuthentication(authSession, false, false);
+    }
+
+    /**
+     * Checks the client configuration to return the redirect URL and the binding type.
+     * POST is preferred, only if the SAML_ASSERTION_CONSUMER_URL_POST_ATTRIBUTE
+     * and management URL are empty REDIRECT is chosen.
+     *
+     * @param client Client to create client session for
+     * @return a two string array [samlUrl, bindingType] or null if error
+     */
+    private String[] getUrlAndBindingForIdpInitiatedSso(ClientModel client) {
+        String postUrl = client.getAttribute(SamlProtocol.SAML_ASSERTION_CONSUMER_URL_POST_ATTRIBUTE);
+        String getUrl = client.getAttribute(SamlProtocol.SAML_ASSERTION_CONSUMER_URL_REDIRECT_ATTRIBUTE);
+        if (postUrl != null && !postUrl.trim().isEmpty()) {
+            // first the POST binding URL
+            return new String[] {postUrl.trim(), SamlProtocol.SAML_POST_BINDING};
+        } else if (client.getManagementUrl() != null && !client.getManagementUrl().trim().isEmpty()) {
+            // second the management URL and POST
+            return new String[] {client.getManagementUrl().trim(), SamlProtocol.SAML_POST_BINDING};
+        } else if (getUrl != null && !getUrl.trim().isEmpty()){
+            // last option REDIRECT binding and URL
+            return new String[] {getUrl.trim(), SamlProtocol.SAML_REDIRECT_BINDING};
+        } else {
+            // error
+            return null;
+        }
     }
 
     /**
@@ -655,29 +703,21 @@ public class SamlService extends AuthorizationEndpointBase {
      * @param realm Realm to create client session in
      * @param client Client to create client session for
      * @param relayState Optional relay state - free field as per SAML specification
-     * @return
+     * @return The auth session model or null if there is no SAML url is found
      */
     public AuthenticationSessionModel getOrCreateLoginSessionForIdpInitiatedSso(KeycloakSession session, RealmModel realm, ClientModel client, String relayState) {
-        String bindingType = SamlProtocol.SAML_POST_BINDING;
-        if (client.getManagementUrl() == null && client.getAttribute(SamlProtocol.SAML_ASSERTION_CONSUMER_URL_POST_ATTRIBUTE) == null && client.getAttribute(SamlProtocol.SAML_ASSERTION_CONSUMER_URL_REDIRECT_ATTRIBUTE) != null) {
-            bindingType = SamlProtocol.SAML_REDIRECT_BINDING;
+        String[] bindingProperties = getUrlAndBindingForIdpInitiatedSso(client);
+        if (bindingProperties == null) {
+            return null;
         }
-
-        String redirect;
-        if (bindingType.equals(SamlProtocol.SAML_REDIRECT_BINDING)) {
-            redirect = client.getAttribute(SamlProtocol.SAML_ASSERTION_CONSUMER_URL_REDIRECT_ATTRIBUTE);
-        } else {
-            redirect = client.getAttribute(SamlProtocol.SAML_ASSERTION_CONSUMER_URL_POST_ATTRIBUTE);
-        }
-        if (redirect == null) {
-            redirect = client.getManagementUrl();
-        }
+        String redirect = bindingProperties[0];
+        String bindingType = bindingProperties[1];
 
         AuthenticationSessionModel authSession = createAuthenticationSession(client, null);
 
         authSession.setProtocol(SamlProtocol.LOGIN_PROTOCOL);
         authSession.setAction(AuthenticationSessionModel.Action.AUTHENTICATE.name());
-        authSession.setClientNote(SamlProtocol.SAML_BINDING, SamlProtocol.SAML_POST_BINDING);
+        authSession.setClientNote(SamlProtocol.SAML_BINDING, bindingType);
         authSession.setClientNote(SamlProtocol.SAML_IDP_INITIATED_LOGIN, "true");
         authSession.setRedirectUri(redirect);
 
@@ -696,35 +736,10 @@ public class SamlService extends AuthorizationEndpointBase {
     @NoCache
     @Consumes({"application/soap+xml",MediaType.TEXT_XML})
     public Response soapBinding(InputStream inputStream) {
-        SamlEcpProfileService bindingService = new SamlEcpProfileService(realm, event, knownPorts, knownProtocols);
+        SamlEcpProfileService bindingService = new SamlEcpProfileService(realm, event, destinationValidator);
 
         ResteasyProviderFactory.getInstance().injectProperties(bindingService);
 
         return bindingService.authenticate(inputStream);
     }
-
-    private boolean isValidDestination(URI destination) {
-        if (destination == null) {
-            return true;    // destination is optional
-        }
-
-        URI expected = session.getContext().getUri().getAbsolutePath();
-
-        if (Objects.equals(expected, destination)) {
-            return true;
-        }
-
-        Integer portByScheme = knownPorts.get(expected.getScheme());
-        if (expected.getPort() < 0 && portByScheme != null) {
-            return Objects.equals(session.getContext().getUri().getRequestUriBuilder().port(portByScheme).build(), destination);
-        }
-
-        String protocolByPort = knownProtocols.get(expected.getPort());
-        if (expected.getPort() >= 0 && Objects.equals(protocolByPort, expected.getScheme())) {
-            return Objects.equals(session.getContext().getUri().getRequestUriBuilder().port(-1).build(), destination);
-        }
-
-        return false;
-    }
-
 }

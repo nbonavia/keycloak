@@ -68,33 +68,27 @@ public class MigrationTest extends AbstractMigrationTest {
     }
 
     @Test
-    @Migration(versionFrom = "3.4.3.Final")
-    public void migration3_4_3Test() {
+    @Migration(versionFrom = "3.")
+    public void migration3_xTest() {
         testMigratedData();
         testMigrationTo4_x();
     }
 
     @Test
-    @Migration(versionFrom = "2.5.5.Final")
-    public void migration2_5_5Test() {
+    @Migration(versionFrom = "2.")
+    public void migration2_xTest() {
         testMigratedData();
         testMigrationTo3_x();
         testMigrationTo4_x();
     }
 
     @Test
-    @Migration(versionFrom = "1.9.8.Final")
-    public void migration1_9_8Test() throws Exception {
-        testMigratedData();
+    @Migration(versionFrom = "1.")
+    public void migration1_xTest() throws Exception {
+        testMigratedData(false);
         testMigrationTo2_x();
         testMigrationTo3_x();
-        testMigrationTo4_x();
-    }
-
-    @Test
-    @Migration(versionFrom = "2.2.1.Final")
-    public void migrationInAuthorizationServicesTest() {
-        testDroolsToRulesPolicyTypeMigration();
+        testMigrationTo4_x(false, false);
     }
 
 }

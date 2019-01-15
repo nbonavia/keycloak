@@ -246,6 +246,16 @@ public class RealmAdapter implements RealmModel, JpaModel<RealmEntity> {
     }
 
     @Override
+    public String getDefaultSignatureAlgorithm() {
+        return getAttribute("defaultSignatureAlgorithm");
+    }
+
+    @Override
+    public void setDefaultSignatureAlgorithm(String defaultSignatureAlgorithm) {
+        setAttribute("defaultSignatureAlgorithm", defaultSignatureAlgorithm);
+    }
+
+    @Override
     public boolean isBruteForceProtected() {
         return getAttribute("bruteForceProtected", false);
     }
@@ -454,6 +464,26 @@ public class RealmAdapter implements RealmModel, JpaModel<RealmEntity> {
     @Override
     public void setSsoSessionMaxLifespan(int seconds) {
         realm.setSsoSessionMaxLifespan(seconds);
+    }
+
+    @Override
+    public int getSsoSessionIdleTimeoutRememberMe() {
+        return realm.getSsoSessionIdleTimeoutRememberMe();
+    }
+
+    @Override
+    public void setSsoSessionIdleTimeoutRememberMe(int seconds){
+        realm.setSsoSessionIdleTimeoutRememberMe(seconds);
+    }
+
+    @Override
+    public int getSsoSessionMaxLifespanRememberMe() {
+        return realm.getSsoSessionMaxLifespanRememberMe();
+    }
+
+    @Override
+    public void setSsoSessionMaxLifespanRememberMe(int seconds) {
+        realm.setSsoSessionMaxLifespanRememberMe(seconds);
     }
 
     @Override

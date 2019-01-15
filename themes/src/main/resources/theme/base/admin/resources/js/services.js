@@ -349,8 +349,18 @@ module.factory('RegisterRequiredAction', function($resource) {
     });
 });
 
-module.factory('RealmLDAPConnectionTester', function($resource) {
-    return $resource(authUrl + '/admin/realms/:realm/testLDAPConnection');
+module.factory('RealmLDAPConnectionTester', function($resource, $httpParamSerializer) {
+    return $resource(authUrl + '/admin/realms/:realm/testLDAPConnection', {
+        realm : '@realm'
+    }, {
+        save: {
+            method: 'POST',
+            headers : { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+            transformRequest: function (data) {
+                return $httpParamSerializer(data)
+            }
+        }
+    });
 });
 
 module.factory('RealmSMTPConnectionTester', function($resource) {
@@ -1387,23 +1397,29 @@ module.factory('TimeUnit2', function() {
     var t = {};
 
     t.asUnit = function(time) {
-        var unit = 'Minutes';
-        if (time) {
-            if (time < 60) {
-                time = 60;
-            }
 
-            if (time % 60 == 0) {
-                unit = 'Minutes';
-                time = time / 60;
-            }
-            if (time % 60 == 0) {
-                unit = 'Hours';
-                time = time / 60;
-            }
-            if (time % 24 == 0) {
-                unit = 'Days'
-                time = time / 24;
+        var unit = 'Minutes';
+
+        if (time) {
+            if (time == -1) {
+                time = -1;
+            } else {
+                if (time < 60) {
+                    time = 60;
+                }
+
+                if (time % 60 == 0) {
+                    unit = 'Minutes';
+                    time = time / 60;
+                }
+                if (time % 60 == 0) {
+                    unit = 'Hours';
+                    time = time / 60;
+                }
+                if (time % 24 == 0) {
+                    unit = 'Days'
+                    time = time / 24;
+                }
             }
         }
 
@@ -1927,5 +1943,20 @@ module.factory('LDAPMapperSync', function($resource) {
 });
 
 
-
+module.factory('UserGroupMembershipCount', function($resource) {
+    return $resource(authUrl + '/admin/realms/:realm/users/:userId/groups/count', {
+            realm : '@realm',
+            userId : '@userId'
+        },
+        {
+            query: {
+                isArray: false,
+                method: 'GET',
+                params: {},
+                transformResponse: function (data) {
+                    return angular.fromJson(data)
+                }
+            }
+        });
+});
 

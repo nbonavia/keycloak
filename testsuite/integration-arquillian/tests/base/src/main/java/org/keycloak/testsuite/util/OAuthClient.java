@@ -17,6 +17,7 @@
 
 package org.keycloak.testsuite.util;
 
+import com.google.common.base.Charsets;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.io.output.ByteArrayOutputStream;
 import org.apache.http.Header;
@@ -27,23 +28,23 @@ import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpOptions;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.utils.URLEncodedUtils;
-import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.message.BasicNameValuePair;
 import org.junit.Assert;
 import org.keycloak.OAuth2Constants;
-import org.keycloak.RSATokenVerifier;
-import org.keycloak.admin.client.Keycloak;
+import org.keycloak.TokenVerifier;
 import org.keycloak.broker.provider.util.SimpleHttp;
 import org.keycloak.common.VerificationException;
 import org.keycloak.common.util.KeystoreUtil;
-import org.keycloak.common.util.PemUtils;
 import org.keycloak.constants.AdapterConstants;
-import org.keycloak.crypto.Algorithm;
+import org.keycloak.crypto.AsymmetricSignatureVerifierContext;
+import org.keycloak.crypto.KeyUse;
+import org.keycloak.crypto.KeyWrapper;
 import org.keycloak.jose.jwk.JSONWebKeySet;
+import org.keycloak.jose.jwk.JWK;
+import org.keycloak.jose.jwk.JWKParser;
 import org.keycloak.jose.jws.JWSInput;
-import org.keycloak.jose.jws.JWSInputException;
-import org.keycloak.jose.jws.crypto.RSAProvider;
 import org.keycloak.models.utils.KeycloakModelUtils;
 import org.keycloak.protocol.oidc.OIDCLoginProtocol;
 import org.keycloak.protocol.oidc.OIDCLoginProtocolService;
@@ -51,24 +52,26 @@ import org.keycloak.protocol.oidc.representations.OIDCConfigurationRepresentatio
 import org.keycloak.protocol.oidc.utils.OIDCResponseType;
 import org.keycloak.representations.AccessToken;
 import org.keycloak.representations.IDToken;
+import org.keycloak.representations.JsonWebToken;
 import org.keycloak.representations.RefreshToken;
-import org.keycloak.representations.idm.KeysMetadataRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
 import org.keycloak.testsuite.arquillian.AuthServerTestEnricher;
+import org.keycloak.testsuite.runonserver.RunOnServerException;
 import org.keycloak.util.BasicAuthHelper;
 import org.keycloak.util.JsonSerialization;
 import org.keycloak.util.TokenUtil;
-import com.google.common.base.Charsets;
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebDriver;
 
+import javax.ws.rs.client.Entity;
+import javax.ws.rs.core.Form;
 import javax.ws.rs.core.UriBuilder;
-
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
 import java.security.PublicKey;
 import java.util.Collections;
@@ -76,8 +79,7 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import javax.ws.rs.client.Entity;
-import javax.ws.rs.core.Form;
+import java.util.function.Supplier;
 
 import static org.keycloak.testsuite.admin.Users.getPasswordOf;
 
@@ -101,9 +103,6 @@ public class OAuthClient {
         AUTH_SERVER_ROOT = SERVER_ROOT + "/auth";
         APP_ROOT = AUTH_SERVER_ROOT + "/realms/master/app";
     }
-
-
-    private Keycloak adminClient;
 
     private WebDriver driver;
 
@@ -137,13 +136,17 @@ public class OAuthClient {
 
     private String requestUri;
 
-    private Map<String, PublicKey> publicKeys = new HashMap<>();
+    private Map<String, JSONWebKeySet> publicKeys = new HashMap<>();
 
     // https://tools.ietf.org/html/rfc7636#section-4
     private String codeVerifier;
     private String codeChallenge;
     private String codeChallengeMethod;
     private String origin;
+
+    private boolean openid = true;
+
+    private Supplier<CloseableHttpClient> httpClient = OAuthClient::newCloseableHttpClient;
 
     public class LogoutUrlBuilder {
         private final UriBuilder b = OIDCLoginProtocolService.logoutUrl(UriBuilder.fromUri(baseUrl));
@@ -181,8 +184,7 @@ public class OAuthClient {
         }
     }
 
-    public void init(Keycloak adminClient, WebDriver driver) {
-        this.adminClient = adminClient;
+    public void init(WebDriver driver) {
         this.driver = driver;
 
         baseUrl = AUTH_SERVER_ROOT;
@@ -207,6 +209,7 @@ public class OAuthClient {
         codeChallenge = null;
         codeChallengeMethod = null;
         origin = null;
+        openid = true;
     }
 
     public void setDriver(WebDriver driver) {
@@ -225,12 +228,26 @@ public class OAuthClient {
         return doLogin(user.getUsername(), getPasswordOf(user));
     }
 
+    public AuthorizationEndpointResponse doRememberMeLogin(String username, String password) {
+        openLoginForm();
+        fillLoginForm(username, password, true);
+
+        return new AuthorizationEndpointResponse(this);
+    }
+
     public void fillLoginForm(String username, String password) {
+        this.fillLoginForm(username, password, false);
+    }
+
+    public void fillLoginForm(String username, String password, boolean rememberMe) {
         WaitUtils.waitForPageToLoad();
         String src = driver.getPageSource();
         try {
             driver.findElement(By.id("username")).sendKeys(username);
             driver.findElement(By.id("password")).sendKeys(password);
+            if (rememberMe) {
+                driver.findElement(By.id("rememberMe")).click();
+            }
             driver.findElement(By.name("login")).click();
         } catch (Throwable t) {
             System.err.println(src);
@@ -243,7 +260,12 @@ public class OAuthClient {
         fillLoginForm(username, password);
     }
 
-    private static CloseableHttpClient newCloseableHttpClient() {
+    public OAuthClient httpClient(Supplier<CloseableHttpClient> client) {
+        this.httpClient = client;
+        return this;
+    }
+
+    public static CloseableHttpClient newCloseableHttpClient() {
         if (sslRequired) {
             KeyStore keystore = null;
             // load the keystore containing the client certificate - keystore type is probably jks or pkcs12
@@ -274,7 +296,7 @@ public class OAuthClient {
     }
 
     public CloseableHttpResponse doPreflightRequest() {
-        try (CloseableHttpClient client = newCloseableHttpClient()) {
+        try (CloseableHttpClient client = httpClient.get()) {
             HttpOptions options = new HttpOptions(getAccessTokenUrl());
             options.setHeader("Origin", "http://example.com");
 
@@ -286,7 +308,7 @@ public class OAuthClient {
 
     // KEYCLOAK-6771 Certificate Bound Token
     public AccessTokenResponse doAccessTokenRequest(String code, String password) {
-        try (CloseableHttpClient client = newCloseableHttpClient()) {
+        try (CloseableHttpClient client = httpClient.get()) {
             return doAccessTokenRequest(code, password, client);
         }  catch (IOException ioe) {
             throw new RuntimeException(ioe);
@@ -398,7 +420,7 @@ public class OAuthClient {
 
     public AccessTokenResponse doGrantAccessTokenRequest(String realm, String username, String password, String totp,
                                                          String clientId, String clientSecret) throws Exception {
-        try (CloseableHttpClient client = newCloseableHttpClient()) {
+        try (CloseableHttpClient client = httpClient.get()) {
             HttpPost post = new HttpPost(getResourceOwnerPasswordCredentialGrantUrl(realm));
 
             List<NameValuePair> parameters = new LinkedList<>();
@@ -444,7 +466,7 @@ public class OAuthClient {
 
     public AccessTokenResponse doTokenExchange(String realm, String token, String targetAudience,
                                                String clientId, String clientSecret) throws Exception {
-        try (CloseableHttpClient client = newCloseableHttpClient()) {
+        try (CloseableHttpClient client = httpClient.get()) {
             HttpPost post = new HttpPost(getResourceOwnerPasswordCredentialGrantUrl(realm));
 
             List<NameValuePair> parameters = new LinkedList<>();
@@ -484,7 +506,7 @@ public class OAuthClient {
     }
 
     public AccessTokenResponse doTokenExchange(String realm, String clientId, String clientSecret, Map<String, String> params) throws Exception {
-        try (CloseableHttpClient client = newCloseableHttpClient()) {
+        try (CloseableHttpClient client = httpClient.get()) {
             HttpPost post = new HttpPost(getResourceOwnerPasswordCredentialGrantUrl(realm));
 
             List<NameValuePair> parameters = new LinkedList<>();
@@ -652,32 +674,33 @@ public class OAuthClient {
     }
 
     public AccessToken verifyToken(String token) {
-        try {
-            return RSATokenVerifier.verifyToken(token, getRealmPublicKey(realm), baseUrl + "/realms/" + realm);
-        } catch (VerificationException e) {
-            throw new RuntimeException("Failed to verify token", e);
-        }
+        return verifyToken(token, AccessToken.class);
     }
 
     public IDToken verifyIDToken(String token) {
+        return verifyToken(token, IDToken.class);
+    }
+
+    public RefreshToken parseRefreshToken(String refreshToken) {
         try {
-            IDToken idToken = RSATokenVerifier.verifyToken(token, getRealmPublicKey(realm), baseUrl + "/realms/" + realm, true, false);
-            Assert.assertEquals(TokenUtil.TOKEN_TYPE_ID, idToken.getType());
-            return idToken;
-        } catch (VerificationException e) {
-            throw new RuntimeException("Failed to verify token", e);
+            return new JWSInput(refreshToken).readJsonContent(RefreshToken.class);
+        } catch (Exception e) {
+            throw new RunOnServerException(e);
         }
     }
 
-    public RefreshToken verifyRefreshToken(String refreshToken) {
+    public <T extends JsonWebToken> T verifyToken(String token, Class<T> clazz) {
         try {
-            JWSInput jws = new JWSInput(refreshToken);
-            if (!RSAProvider.verify(jws, getRealmPublicKey(realm))) {
-                throw new RuntimeException("Invalid refresh token");
-            }
-            return jws.readJsonContent(RefreshToken.class);
-        } catch (RuntimeException | JWSInputException e) {
-            throw new RuntimeException("Invalid refresh token", e);
+            TokenVerifier<T> verifier = TokenVerifier.create(token, clazz);
+            String kid = verifier.getHeader().getKeyId();
+            String algorithm = verifier.getHeader().getAlgorithm().name();
+            KeyWrapper key = getRealmPublicKey(realm, algorithm, kid);
+            AsymmetricSignatureVerifierContext verifierContext = new AsymmetricSignatureVerifierContext(key);
+            verifier.verifierContext(verifierContext);
+            verifier.verify();
+            return verifier.getToken();
+        } catch (VerificationException e) {
+            throw new RuntimeException("Failed to decode token", e);
         }
     }
 
@@ -703,7 +726,7 @@ public class OAuthClient {
 
     public Map<String, String> getCurrentQuery() {
         Map<String, String> m = new HashMap<>();
-        List<NameValuePair> pairs = URLEncodedUtils.parse(getCurrentUri(), Charset.forName("UTF-8"));
+        List<NameValuePair> pairs = URLEncodedUtils.parse(getCurrentUri(), "UTF-8");
         for (NameValuePair p : pairs) {
             m.put(p.getName(), p.getValue());
         }
@@ -738,6 +761,14 @@ public class OAuthClient {
         return redirectUri;
     }
 
+    public String getState() {
+        return state.getState();
+    }
+
+    public String getNonce() {
+        return nonce;
+    }
+
     public String getLoginFormUrl() {
         UriBuilder b = OIDCLoginProtocolService.authUrl(UriBuilder.fromUri(baseUrl));
         if (responseType != null) {
@@ -763,8 +794,10 @@ public class OAuthClient {
             b.queryParam(OIDCLoginProtocol.NONCE_PARAM, nonce);
         }
 
-        String scopeParam = TokenUtil.attachOIDCScope(scope);
-        b.queryParam(OAuth2Constants.SCOPE, scopeParam);
+        String scopeParam = openid ? TokenUtil.attachOIDCScope(scope) : scope;
+        if (scopeParam != null && !scopeParam.isEmpty()) {
+            b.queryParam(OAuth2Constants.SCOPE, scopeParam);
+        }
 
         if (maxAge != null) {
             b.queryParam(OIDCLoginProtocol.MAX_AGE_PARAM, maxAge);
@@ -870,6 +903,11 @@ public class OAuthClient {
 
     public OAuthClient scope(String scope) {
         this.scope = scope;
+        return this;
+    }
+
+    public OAuthClient openid(boolean openid) {
+        this.openid = openid;
         return this;
     }
 
@@ -1125,20 +1163,55 @@ public class OAuthClient {
         }
     }
 
-    public PublicKey getRealmPublicKey(String realm) {
-        if (!publicKeys.containsKey(realm)) {
-            KeysMetadataRepresentation keyMetadata = adminClient.realms().realm(realm).keys().getKeyMetadata();
-            String activeKid = keyMetadata.getActive().get(Algorithm.RS256);
-            PublicKey publicKey = null;
-            for (KeysMetadataRepresentation.KeyMetadataRepresentation rep : keyMetadata.getKeys()) {
-                if (rep.getKid().equals(activeKid)) {
-                    publicKey = PemUtils.decodePublicKey(rep.getPublicKey());
-                }
-            }
-            publicKeys.put(realm, publicKey);
+    private KeyWrapper getRealmPublicKey(String realm, String algoritm, String kid) {
+        boolean loadedKeysFromServer = false;
+        JSONWebKeySet jsonWebKeySet = publicKeys.get(realm);
+        if (jsonWebKeySet == null) {
+            jsonWebKeySet = getRealmKeys(realm);
+            publicKeys.put(realm, jsonWebKeySet);
+            loadedKeysFromServer = true;
         }
 
-        return publicKeys.get(realm);
+        KeyWrapper key = findKey(jsonWebKeySet, algoritm, kid);
+
+        if (key == null && !loadedKeysFromServer) {
+            jsonWebKeySet = getRealmKeys(realm);
+            publicKeys.put(realm, jsonWebKeySet);
+
+            key = findKey(jsonWebKeySet, algoritm, kid);
+        }
+
+        if (key == null) {
+            throw new RuntimeException("Public key for realm:" + realm + ", algorithm: " + algoritm + " not found");
+        }
+
+        return key;
+    }
+
+    private JSONWebKeySet getRealmKeys(String realm) {
+        String certUrl = baseUrl + "/realms/" + realm + "/protocol/openid-connect/certs";
+        try {
+            return SimpleHttp.doGet(certUrl, httpClient.get()).asJson(JSONWebKeySet.class);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to retrieve keys", e);
+        }
+    }
+
+    private KeyWrapper findKey(JSONWebKeySet jsonWebKeySet, String algoritm, String kid) {
+        for (JWK k : jsonWebKeySet.getKeys()) {
+            if (k.getKeyId().equals(kid) && k.getAlgorithm().equals(algoritm)) {
+                PublicKey publicKey = JWKParser.create(k).toPublicKey();
+
+                KeyWrapper key = new KeyWrapper();
+                key.setKid(key.getKid());
+                key.setAlgorithm(k.getAlgorithm());
+                key.setVerifyKey(publicKey);
+                key.setUse(KeyUse.SIG);
+
+                return key;
+            }
+        }
+        return null;
     }
 
     public void removeCachedPublicKeys() {
