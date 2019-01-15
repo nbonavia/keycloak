@@ -16,7 +16,10 @@
  */
 package org.keycloak.broker.oidc;
 
+import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jdk.nashorn.internal.parser.JSONParser;
 import org.jboss.logging.Logger;
 import org.keycloak.OAuth2Constants;
 import org.keycloak.OAuthErrorException;
@@ -51,7 +54,11 @@ import org.keycloak.services.resources.IdentityBrokerService;
 import org.keycloak.services.resources.RealmsResource;
 import org.keycloak.sessions.AuthenticationSessionModel;
 import org.keycloak.util.JsonSerialization;
+import twitter4j.JSONArray;
+import twitter4j.JSONException;
+import twitter4j.JSONObject;
 
+import javax.json.JsonObject;
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
 import javax.ws.rs.QueryParam;
@@ -63,6 +70,8 @@ import javax.ws.rs.core.UriBuilder;
 import javax.ws.rs.core.UriInfo;
 import java.io.IOException;
 import java.security.PublicKey;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * @author Pedro Igor
@@ -337,8 +346,28 @@ public class OIDCIdentityProvider extends AbstractOAuth2IdentityProvider<OIDCIde
     public BrokeredIdentityContext getFederatedIdentity(String response) {
         AccessTokenResponse tokenResponse = null;
         try {
-            tokenResponse = JsonSerialization.readValue(response, AccessTokenResponse.class);
+            ObjectMapper objectMapper = new ObjectMapper();
+            JSONObject tokenObject = objectMapper.readValue(response, JSONObject.class);
+            if (tokenObject.has("access_token")) {
+                if (!tokenObject.has("token_type")) {
+                    tokenObject.put("token_type", "Bearer");
+                }
+
+                if (tokenObject.get("scope") instanceof JSONArray) {
+                    StringBuilder scopes = new StringBuilder();
+                    JSONArray scopeArray = (JSONArray)tokenObject.get("scope");
+                    for (int i=0; i<scopeArray.length(); i++) {
+                        scopes.append(scopeArray.getString(i) + " ");
+                    }
+
+                    tokenObject.put("scope",scopes.toString().trim());
+                }
+            }
+
+            tokenResponse = objectMapper.readValue(tokenObject.toString(), AccessTokenResponse.class);
         } catch (IOException e) {
+            throw new IdentityBrokerException("Could not decode access token response.", e);
+        } catch (JSONException e) {
             throw new IdentityBrokerException("Could not decode access token response.", e);
         }
         String accessToken = verifyAccessToken(tokenResponse);
