@@ -19,6 +19,8 @@ package org.keycloak.broker.oidc;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import jdk.nashorn.internal.parser.JSONParser;
 import org.jboss.logging.Logger;
 import org.keycloak.OAuth2Constants;
@@ -58,6 +60,7 @@ import twitter4j.JSONArray;
 import twitter4j.JSONException;
 import twitter4j.JSONObject;
 
+import javax.json.JsonArray;
 import javax.json.JsonObject;
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
@@ -347,29 +350,28 @@ public class OIDCIdentityProvider extends AbstractOAuth2IdentityProvider<OIDCIde
         AccessTokenResponse tokenResponse = null;
         try {
             ObjectMapper objectMapper = new ObjectMapper();
-            JSONObject tokenObject = objectMapper.readValue(response, JSONObject.class);
+            ObjectNode tokenObject = (ObjectNode) objectMapper.readTree(response);
             if (tokenObject.has("access_token")) {
                 if (!tokenObject.has("token_type")) {
                     tokenObject.put("token_type", "Bearer");
                 }
 
-                if (tokenObject.get("scope") instanceof JSONArray) {
+                if (tokenObject.get("scope").isArray()) {
                     StringBuilder scopes = new StringBuilder();
-                    JSONArray scopeArray = (JSONArray)tokenObject.get("scope");
-                    for (int i=0; i<scopeArray.length(); i++) {
-                        scopes.append(scopeArray.getString(i) + " ");
+                    ArrayNode scopeArray =(ArrayNode)tokenObject.get("scope");
+                    for (int i=0; i<scopeArray.size(); i++) {
+                        scopes.append(scopeArray.get(i).asText() + " ");
                     }
 
                     tokenObject.put("scope",scopes.toString().trim());
                 }
             }
 
-            tokenResponse = objectMapper.readValue(tokenObject.toString(), AccessTokenResponse.class);
+            tokenResponse = objectMapper.treeToValue(tokenObject, AccessTokenResponse.class);
         } catch (IOException e) {
             throw new IdentityBrokerException("Could not decode access token response.", e);
-        } catch (JSONException e) {
-            throw new IdentityBrokerException("Could not decode access token response.", e);
         }
+
         String accessToken = verifyAccessToken(tokenResponse);
 
         String encodedIdToken = tokenResponse.getIdToken();
